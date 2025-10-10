@@ -1,6 +1,4 @@
-# ============================================
-# Fast MLP Training + Threshold Tuning + Summary Table
-# ============================================
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -22,17 +20,12 @@ from tensorflow.keras.layers import Input, Dense, Dropout, BatchNormalization
 from tensorflow.keras.models import Model
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 
-# --------------------------------------------
-# ⚙ Speed-ups
-# --------------------------------------------
-mixed_precision.set_global_policy('mixed_float16')   # أسرع على GPU/TPU
-JIT_COMPILE = True                                    # XLA
+
+mixed_precision.set_global_policy('mixed_float16')   
+JIT_COMPILE = True                                    
 BATCH = 1024
 EPOCHS = 60
 
-# --------------------------------------------
-# 📌 Focal Loss
-# --------------------------------------------
 def focal_loss(gamma=2., alpha=0.25):
     def focal_loss_fixed(y_true, y_pred):
         y_true = tf.cast(y_true, tf.float32)
@@ -44,9 +37,7 @@ def focal_loss(gamma=2., alpha=0.25):
         return K.mean(weight * cross_entropy)
     return focal_loss_fixed
 
-# --------------------------------------------
-# 📥 Load & Prepare Data
-# --------------------------------------------
+
 df = pd.read_csv('train_data.csv')
 df = df.infer_objects(copy=False).interpolate()
 
@@ -76,23 +67,14 @@ X_train_s = scaler.fit_transform(X_train)
 X_val_s   = scaler.transform(X_val)
 X_test_s  = scaler.transform(X_test)
 
-# --------------------------------------------
-# ⚖ Class Weights (أسرع من SMOTE)
-# (لو تبغين SMOTE بدلًا من class_weight، فعّلي SMOTE هنا وعلّقي class_weight)
-# --------------------------------------------
+
 classes = np.unique(y_train)
 weights = compute_class_weight('balanced', classes=classes, y=y_train)
 class_weight = {int(c): float(w) for c, w in zip(classes, weights)}
 
-# -- بديل (أبطأ): SMOTE
-# from imblearn.over_sampling import SMOTE
-# sm = SMOTE(random_state=42)
-# X_train_s, y_train = sm.fit_resample(X_train_s, y_train)
-# class_weight = None
 
-# --------------------------------------------
-# 🧠 Build Fast MLP
-# --------------------------------------------
+
+
 inp = Input(shape=(X_train_s.shape[1],))
 x = BatchNormalization()(inp)
 x = Dense(256, activation='relu')(x)
@@ -125,9 +107,7 @@ train_ds = tf.data.Dataset.from_tensor_slices((X_train_s.astype('float32'), y_tr
 val_ds   = tf.data.Dataset.from_tensor_slices((X_val_s.astype('float32'), y_val.astype('float32'))) \
                           .batch(BATCH).prefetch(tf.data.AUTOTUNE)
 
-# --------------------------------------------
-# 🚀 Train
-# --------------------------------------------
+
 history = model.fit(
     train_ds,
     epochs=EPOCHS,
@@ -139,11 +119,8 @@ history = model.fit(
 
 model.save_weights('mlp_fast.weights.h5')
 joblib.dump(scaler, 'scaler_fast.save')
-print("✅ Training complete. Model and scaler saved!")
+print(" Training complete. Model and scaler saved!")
 
-# --------------------------------------------
-# 🔍 Helper: bootstrap CIs
-# --------------------------------------------
 def bootstrap_ci_point(metric_func, y_true, y_pred_labels, n_bootstrap=2000, seed=42):
     rng = np.random.RandomState(seed)
     n = len(y_true)
@@ -164,37 +141,30 @@ def bootstrap_ci_prob(metric_func, y_true, y_scores, n_bootstrap=2000, seed=42):
     values = np.asarray(values)
     return float(np.mean(values)), (float(np.percentile(values, 2.5)), float(np.percentile(values, 97.5)))
 
-# --------------------------------------------
-# 🧪 Predictions (Train/Val/Test)
-# --------------------------------------------
+
 y_train_proba = model.predict(X_train_s.astype('float32'), batch_size=4096, verbose=0).ravel()
 y_val_proba   = model.predict(X_val_s.astype('float32'), batch_size=4096, verbose=0).ravel()
 y_test_proba  = model.predict(X_test_s.astype('float32'), batch_size=4096, verbose=0).ravel()
 
-# --------------------------------------------
-# 🎯 Threshold Tuning on Validation (maximize F1)
-# --------------------------------------------
+
 prec_v, rec_v, thrs_v = precision_recall_curve(y_val, y_val_proba)
 f1_v = 2 * (prec_v * rec_v) / (prec_v + rec_v + 1e-12)
 best_idx = np.argmax(f1_v)
 best_thresh = thrs_v[best_idx] if len(thrs_v) > 0 else 0.5
 
-# بديل يضمن Recall ≥ 0.80 (اختياري)
+
 target_recall = 0.80
 idx_recall_ok = np.where(rec_v >= target_recall)[0]
 alt_thresh_r80 = (thrs_v[idx_recall_ok[-1]] if len(idx_recall_ok) > 0 and idx_recall_ok[-1] < len(thrs_v)
                   else best_thresh)
 
-print(f"\n🎯 Best threshold for F1 on VAL: {best_thresh:.4f}")
-print(f"🎯 Alt threshold for Recall≥{target_recall:.2f} on VAL: {alt_thresh_r80:.4f}")
+print(f"\n Best threshold for F1 on VAL: {best_thresh:.4f}")
+print(f" Alt threshold for Recall≥{target_recall:.2f} on VAL: {alt_thresh_r80:.4f}")
 
-# نستخدم العتبة الأفضل لـ F1
+
 THRESH = best_thresh
 
-# --------------------------------------------
-# 📈 Plots (ROC & PR + Confusion Matrix on Test)
-# --------------------------------------------
-# ROC (Test)
+
 fpr, tpr, _ = roc_curve(y_test, y_test_proba)
 auc_test = roc_auc_score(y_test, y_test_proba)
 plt.plot(fpr, tpr, label=f"ROC (AUC = {auc_test:.3f})")
@@ -202,14 +172,14 @@ plt.plot([0,1],[0,1],'--',lw=1)
 plt.xlabel("False Positive Rate"); plt.ylabel("True Positive Rate")
 plt.title("ROC Curve (Test)"); plt.legend(); plt.grid(True); plt.show()
 
-# PR (Test)
+
 prec_t, rec_t, _ = precision_recall_curve(y_test, y_test_proba)
 ap_test = average_precision_score(y_test, y_test_proba)
 plt.plot(rec_t, prec_t, label=f"PR (AP = {ap_test:.3f})")
 plt.xlabel("Recall"); plt.ylabel("Precision")
 plt.title("Precision–Recall Curve (Test)"); plt.legend(); plt.grid(True); plt.show()
 
-# Confusion Matrix (Test @ tuned threshold)
+
 y_test_pred = (y_test_proba > THRESH).astype(int)
 cm = confusion_matrix(y_test, y_test_pred)
 ConfusionMatrixDisplay(confusion_matrix=cm).plot(cmap=plt.cm.Blues)
@@ -219,12 +189,7 @@ plt.show()
 print("📊 Classification Report (Test, tuned threshold):\n")
 print(classification_report(y_test, y_test_pred, digits=4))
 
-# --------------------------------------------
-# 📏 Metrics (Train/Val using current best weights) & CIs (Test)
-# --------------------------------------------
-# Training metrics (evaluate/recompute on current weights)
-# ملاحظة: قيم "Best" هنا تُحسب على كامل Train/Val بعد استرجاع أفضل وزن (val_loss)
-# وهذا أدق من max(history.history[...])
+
 y_train_pred = (y_train_proba > THRESH).astype(int)
 y_val_pred   = (y_val_proba > THRESH).astype(int)
 
@@ -237,11 +202,10 @@ val_prec   = ( (y_val_pred & (y_val==1)).sum() / max(1, y_val_pred.sum()) )
 train_rec  = ( (y_train_pred & (y_train==1)).sum() / max(1, (y_train==1).sum()) )
 val_rec    = ( (y_val_pred & (y_val==1)).sum() / max(1, (y_val==1).sum()) )
 
-# Loss/ROC-AUC/PR-AUC على Train/Val
-# (Loss نحسبه عبر evaluate لموثوقية أعلى)
+
 train_eval = model.evaluate(X_train_s.astype('float32'), y_train.astype('float32'), batch_size=4096, verbose=0)
 val_eval   = model.evaluate(X_val_s.astype('float32'),   y_val.astype('float32'),   batch_size=4096, verbose=0)
-# train_eval = [loss, acc, prec, rec, auc]
+
 train_loss = float(train_eval[0]); val_loss = float(val_eval[0])
 
 train_auc = roc_auc_score(y_train, y_train_proba)
@@ -250,22 +214,19 @@ val_auc   = roc_auc_score(y_val,   y_val_proba)
 train_pr_auc = average_precision_score(y_train, y_train_proba)
 val_pr_auc   = average_precision_score(y_val,   y_val_proba)
 
-# Test point metrics @ tuned threshold
+
 test_acc  = (y_test_pred == y_test).mean()
 test_prec = ( (y_test_pred & (y_test==1)).sum() / max(1, y_test_pred.sum()) )
 test_rec  = ( (y_test_pred & (y_test==1)).sum() / max(1, (y_test==1).sum()) )
 test_auc  = auc_test
 test_pr_auc = ap_test
 
-# CIs
+
 acc_mean, acc_ci = bootstrap_ci_point(lambda yt, yp: (yt == yp).mean(), y_test, y_test_pred)
 f1_mean,  f1_ci  = bootstrap_ci_point(f1_score, y_test, y_test_pred)
 roc_mean, roc_ci = bootstrap_ci_prob(roc_auc_score, y_test, y_test_proba)
 pr_mean,  pr_ci  = bootstrap_ci_prob(average_precision_score, y_test, y_test_proba)
 
-# --------------------------------------------
-# 🧾 Summary Table (same style)
-# --------------------------------------------
 def ci_str(ci):
     return f"[{ci[0]:.4f}, {ci[1]:.4f}]"
 
@@ -281,9 +242,7 @@ print(f"\n(Threshold chosen on VAL for best F1 = {THRESH:.4f} | Alt threshold fo
 print(f"(Also reporting Test F1 CI: mean={f1_mean:.4f}, CI={ci_str(f1_ci)})")
 
 
-# =========================================
-# 📈 Training vs Validation curves
-# =========================================
+
 import matplotlib.pyplot as plt
 
 def plot_history(history, metric='loss'):
@@ -297,20 +256,21 @@ def plot_history(history, metric='loss'):
     plt.grid(True)
     plt.show()
 
-# 🔹 Loss curve
+#  Loss curve
 plot_history(history, 'loss')
 
-# 🔹 Accuracy curve
+#  Accuracy curve
 plot_history(history, 'accuracy')
 
-# 🔹 Precision curve
+#  Precision curve
 plot_history(history, 'precision')
 
-# 🔹 Recall curve
+#  Recall curve
 plot_history(history, 'recall')
 
-# 🔹 AUC curve
+#  AUC curve
 plot_history(history, 'auc')
+
 
 
 
