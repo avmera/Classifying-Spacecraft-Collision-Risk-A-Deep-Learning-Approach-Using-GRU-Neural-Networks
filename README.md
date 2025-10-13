@@ -1,4 +1,4 @@
-# Classifying Spacecraft Collision Risk: A Machine Learning Approach Using GRU Neural Networks
+# Classifying Spacecraft Collision Risk: A Deep Learning Approach Using GRU Neural Networks
 
 ## Overview
 
