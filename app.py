@@ -1,11 +1,10 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import GRU, Dense, Dropout, Masking
 import tensorflow as tf
 import joblib
+from tensorflow.keras.layers import Input, Dense, Dropout, BatchNormalization
+from tensorflow.keras.models import Model
 
 @st.cache_data
 def load_data():
@@ -20,30 +19,31 @@ FEATURES = [
     'c_sigma_t', 'c_time_lastob_end', 'c_obs_available', 'c_ctdot_n'
 ]
 
+
 def build_model(input_shape):
-    model = Sequential([
-        Masking(mask_value=0., input_shape=input_shape),
-        GRU(100, activation='tanh', return_sequences=True),
-        Dropout(0.3),
-        GRU(80, activation='tanh', return_sequences=True),
-        Dropout(0.2),
-        GRU(50, activation='tanh', return_sequences=True),
-        Dropout(0.1),
-        GRU(30, activation='tanh'),
-        Dropout(0.2),
-        Dense(1, activation='sigmoid')
-    ])
+    inp = Input(shape=input_shape)
+    x = BatchNormalization()(inp)
+    x = Dense(256, activation='relu')(x)
+    x = Dropout(0.30)(x)
+    x = Dense(128, activation='relu')(x)
+    x = Dropout(0.20)(x)
+    x = Dense(64, activation='relu')(x)
+    x = Dropout(0.10)(x)
+    out = Dense(1, activation='sigmoid', dtype='float32')(x)
+
+    model = Model(inp, out)
     model.compile(
-        optimizer='adam',
+        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
         loss='binary_crossentropy',
-        metrics=['accuracy', tf.keras.metrics.Precision(name='precision'), tf.keras.metrics.Recall(name='recall')]
+        metrics=['accuracy', tf.keras.metrics.Precision(), tf.keras.metrics.Recall()]
     )
     return model
 
-st.title("Event Risk Classifier and Warning System")
+
+st.title("🚀 Event Risk Classifier and Warning System")
 
 df = load_data()
-scaler = joblib.load("scaler.save")
+scaler = joblib.load("scaler_fast.save")
 
 event_col = st.selectbox("Choose the event column to search by:", df.columns)
 event_id = st.text_input("Enter Event Value (ID or other unique info):")
@@ -55,19 +55,23 @@ if st.button("Check Risk"):
     else:
         X_sample = row[FEATURES].values
         X_scaled = scaler.transform(X_sample)
-        X_input = X_scaled.reshape((X_scaled.shape[0], 1, X_scaled.shape[1]))
-        
-        model = build_model((1, len(FEATURES)))
-        try:
-            model.load_weights('gru_risk_model.weights.h5')
 
+        # Build model and load saved weights
+        model = build_model((len(FEATURES),))
+        try:
+            model.load_weights("mlp_fast.weights.h5")
         except Exception as e:
-            st.error("Could not load trained model weights. Please ensure 'gru_risk_model.h5' is in this directory.")
+            st.error(f" Could not load trained model weights: {e}")
             st.stop()
-        
-        y_prob = model.predict(X_input)[0, 0]
+
+        # Make prediction
+        y_prob = model.predict(X_scaled)[0, 0]
         risk_label = "HIGH RISK" if y_prob >= 0.5 else "LOW RISK"
-        st.write(f"### Prediction: {risk_label}")
-        st.write(f"Probability of High Risk: {y_prob:.2f}")
+
+        st.markdown(f"### Prediction: **{risk_label}**")
+        st.markdown(f"**Probability of High Risk:** {y_prob:.2f}")
+
         if y_prob >= 0.5:
             st.error("⚠️ WARNING: This event is classified as HIGH RISK. Immediate review is recommended!")
+        else:
+            st.success(" This event is classified as LOW RISK.")
