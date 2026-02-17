@@ -42,7 +42,7 @@ df = pd.read_csv('train_data.csv')
 df = df.infer_objects(copy=False).interpolate()
 
 FEATURES = [
-    'max_risk_scaling', 'time_to_tca', 'mahalanobis_distance', 'max_risk_estimate', 'c_h_per',
+    'time_to_tca', 'mahalanobis_distance', 'c_h_per',
     'relative_velocity_t', 'c_recommended_od_span', 'relative_speed', 'c_actual_od_span',
     'c_cd_area_over_mass', 't_j2k_sma', 't_h_per', 'c_ctdot_r', 'c_cr_area_over_mass', 't_h_apo',
     'c_sigma_t', 'c_time_lastob_end', 'c_obs_available', 'c_ctdot_n'
@@ -270,6 +270,7 @@ plot_history(history, 'recall')
 
 #  AUC curve
 plot_history(history, 'auc')
+
 
 
 
